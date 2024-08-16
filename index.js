@@ -1,52 +1,59 @@
+// server/index.js
+
 const express = require("express");
 const mongoose = require("mongoose");
 const http = require("http");
-const WebSocket = require("ws");
-const cors = require("cors"); // Import the cors package
+const { Server } = require("socket.io");
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
-
-// Use CORS middleware
-app.use(cors());
-
-mongoose.connect("mongodb://localhost:27017/collab-editor", {
-  // Remove deprecated options
+const io = new Server(server, {
+  cors: {
+    origin: "http://localhost:3000", // Allow requests from your React frontend
+    methods: ["GET", "POST"],
+  },
 });
 
-app.use(express.json());
+// MongoDB connection
+mongoose
+  .connect("mongodb://localhost:27017/collab-editor", {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+  .then(() => console.log("MongoDB connected"))
+  .catch((err) => console.error(err));
 
-wss.on("connection", (ws) => {
-  console.log("Client connected");
+const DocumentSchema = new mongoose.Schema(
+  {
+    content: String,
+    version: Number,
+  },
+  { timestamps: true }
+);
 
-  ws.on("message", async (message) => {
-    const { content, type } = JSON.parse(message);
-    if (type === "text_update") {
-      // Broadcast message to all clients
-      wss.clients.forEach((client) => {
-        if (client !== ws && client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify({ content, type }));
-        }
-      });
+const Document = mongoose.model("Document", DocumentSchema);
 
-      // Save to database (version control)
-      const latestDoc = await Document.findOne().sort({ version: -1 });
-      const newVersion = latestDoc ? latestDoc.version + 1 : 1;
-      const newDoc = new Document({ content, version: newVersion });
-      await newDoc.save();
-    } else if (type === "chat_message") {
-      // Broadcast chat message to all clients
-      wss.clients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify({ content, type }));
-        }
-      });
-    }
+io.on("connection", (socket) => {
+  console.log("A user connected");
+
+  socket.on("disconnect", () => {
+    console.log("User disconnected");
   });
 
-  ws.on("close", () => {
-    console.log("Client disconnected");
+  socket.on("text_update", async (content) => {
+    // Broadcast message to all clients except the sender
+    socket.broadcast.emit("text_update", content);
+
+    // Save to database (version control)
+    const latestDoc = await Document.findOne().sort({ version: -1 });
+    const newVersion = latestDoc ? latestDoc.version + 1 : 1;
+    const newDoc = new Document({ content, version: newVersion });
+    await newDoc.save();
+  });
+
+  socket.on("chat_message", (message) => {
+    // Broadcast chat message to all clients
+    io.emit("chat_message", message);
   });
 });
 
