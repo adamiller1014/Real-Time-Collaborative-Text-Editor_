@@ -2,17 +2,18 @@ const express = require("express");
 const mongoose = require("mongoose");
 const http = require("http");
 const WebSocket = require("ws");
+const cors = require("cors"); // Import the cors package
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-mongoose.connect("mongodb://localhost:27017/collab-editor", {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-});
+// Use CORS middleware
+app.use(cors());
 
-const Document = require("./models/Document");
+mongoose.connect("mongodb://localhost:27017/collab-editor", {
+  // Remove deprecated options
+});
 
 app.use(express.json());
 
